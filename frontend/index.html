@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🐋 Whale Watcher - Real-Time BTC Tracker</title>
+  
+  <!-- Socket.io Client -->
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  
+  <!-- Chart.js for visualization -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+  
+  <!-- Styles -->
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    
+    <!-- ======================== HEADER ======================== -->
+    <header class="header">
+      <div class="header__content">
+        <div class="header__logo">
+          <img id="btcLogo" src="" alt="BTC Logo" class="logo-image">
+          <h1>🐋 WHALE WATCHER</h1>
+          <p class="tagline">Real-Time Bitcoin Whale Tracker</p>
+        </div>
+        
+        <div class="header__status">
+          <div class="status-indicator" id="connectionStatus">
+            <span class="status-dot"></span>
+            <span class="status-text">Connecting...</span>
+          </div>
+          <p class="active-clients">Active: <strong id="clientCount">0</strong> viewers</p>
+        </div>
+      </div>
+    </header>
+
+    <!-- ======================== PRICE DISPLAY ======================== -->
+    <section class="price-section">
+      <div class="price-card">
+        <h2>BTC Price</h2>
+        <div class="price-value" id="btcPrice">$0.00</div>
+        <p class="price-change" id="priceChange">+0.00%</p>
+      </div>
+      
+      <div class="price-card">
+        <h2>Hourly Volume</h2>
+        <div class="price-value" id="hourlyVolume">0 BTC</div>
+        <p class="price-subtitle">Last 60 Minutes</p>
+      </div>
+      
+      <div class="price-card">
+        <h2>Whale Count</h2>
+        <div class="price-value" id="whaleCount">0</div>
+        <p class="price-subtitle">Trades >$500K</p>
+      </div>
+    </section>
+
+    <!-- ======================== CHART ======================== -->
+    <section class="chart-section">
+      <div class="chart-container">
+        <h2>BTC/USDT - 60 Minute Rolling Window</h2>
+        <canvas id="priceChart"></canvas>
+      </div>
+    </section>
+
+    <!-- ======================== LIVE FEED ======================== -->
+    <section class="feed-section">
+      <h2>📡 Live Trade Feed</h2>
+      <div class="feed-container" id="tradeFeed">
+        <div class="feed-item placeholder">
+          <p>Waiting for trades...</p>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ======================== WHALE ALERT MODAL ======================== -->
+  <div class="whale-alert-modal" id="whaleAlertModal">
+    <div class="whale-alert-content">
+      <h2>🚨 WHALE ALERT!</h2>
+      <div class="alert-details">
+        <p><strong>BTC Amount:</strong> <span id="alertQuantity">0</span> BTC</p>
+        <p><strong>Price:</strong> $<span id="alertPrice">0</span></p>
+        <p><strong>USD Value:</strong> $<span id="alertValue">0</span></p>
+        <p><strong>Time:</strong> <span id="alertTime">--:--</span></p>
+      </div>
+      <div class="alert-animation"></div>
+    </div>
+  </div>
+
+  <!-- ======================== METADATA DISPLAY ======================== -->
+  <footer class="footer">
+    <p id="btcMetadata">Loading Bitcoin data...</p>
+    <p class="footer-note">Data source: Binance WebSocket | CoinGecko API</p>
+  </footer>
+
+  <!-- JavaScript -->
+  <script src="app.js"></script>
+</body>
+</html>
+
