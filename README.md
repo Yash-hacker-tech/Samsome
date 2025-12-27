@@ -1,0 +1,2 @@
+# Samsome
+Fintech
