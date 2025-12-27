@@ -3,102 +3,177 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>🐋 Whale Watcher - Real-Time BTC Tracker</title>
+  <title>🐋 Whale Watcher - Advanced Trading</title>
   
-  <!-- Socket.io Client -->
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-  
-  <!-- Chart.js for visualization -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
-  
-  <!-- Styles -->
+  <script src="https://unpkg.com/lightweight-charts@4.0.0/dist/lightweight-charts.standalone.production.js"></script>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="container">
+  <div class="app-container">
     
-    <!-- ======================== HEADER ======================== -->
+    <!-- HEADER -->
     <header class="header">
-      <div class="header__content">
-        <div class="header__logo">
-          <img id="btcLogo" src="" alt="BTC Logo" class="logo-image">
-          <h1>🐋 WHALE WATCHER</h1>
-          <p class="tagline">Real-Time Bitcoin Whale Tracker</p>
+      <div class="header-left">
+        <h1>🐋 WHALE WATCHER</h1>
+        <p>Advanced BTC/USDT Trading Interface</p>
+      </div>
+      <div class="header-right">
+        <div class="connection-status" id="connectionStatus">
+          <span class="status-dot"></span>
+          <span>Connecting...</span>
         </div>
-        
-        <div class="header__status">
-          <div class="status-indicator" id="connectionStatus">
-            <span class="status-dot"></span>
-            <span class="status-text">Connecting...</span>
-          </div>
-          <p class="active-clients">Active: <strong id="clientCount">0</strong> viewers</p>
+        <div class="price-ticker">
+          <span class="ticker-label">BTC/USDT</span>
+          <span class="ticker-price" id="tickerPrice">$0.00</span>
+          <span class="ticker-change" id="tickerChange">+0.00%</span>
         </div>
       </div>
     </header>
 
-    <!-- ======================== PRICE DISPLAY ======================== -->
-    <section class="price-section">
-      <div class="price-card">
-        <h2>BTC Price</h2>
-        <div class="price-value" id="btcPrice">$0.00</div>
-        <p class="price-change" id="priceChange">+0.00%</p>
-      </div>
+    <!-- MAIN LAYOUT -->
+    <div class="main-content">
       
-      <div class="price-card">
-        <h2>Hourly Volume</h2>
-        <div class="price-value" id="hourlyVolume">0 BTC</div>
-        <p class="price-subtitle">Last 60 Minutes</p>
-      </div>
-      
-      <div class="price-card">
-        <h2>Whale Count</h2>
-        <div class="price-value" id="whaleCount">0</div>
-        <p class="price-subtitle">Trades >$500K</p>
-      </div>
-    </section>
-
-    <!-- ======================== CHART ======================== -->
-    <section class="chart-section">
-      <div class="chart-container">
-        <h2>BTC/USDT - 60 Minute Rolling Window</h2>
-        <canvas id="priceChart"></canvas>
-      </div>
-    </section>
-
-    <!-- ======================== LIVE FEED ======================== -->
-    <section class="feed-section">
-      <h2>📡 Live Trade Feed</h2>
-      <div class="feed-container" id="tradeFeed">
-        <div class="feed-item placeholder">
-          <p>Waiting for trades...</p>
+      <!-- LEFT SIDEBAR -->
+      <aside class="sidebar-left">
+        <div class="panel market-info">
+          <h3>📊 Market Stats</h3>
+          <div class="stat-item">
+            <span class="stat-label">High (1h)</span>
+            <span class="stat-value" id="high1h">$0.00</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Low (1h)</span>
+            <span class="stat-value" id="low1h">$0.00</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Volume (1h)</span>
+            <span class="stat-value" id="volume1h">0 BTC</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Whale Count</span>
+            <span class="stat-value" id="whaleCount">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Max Whale</span>
+            <span class="stat-value" id="maxWhale">$0</span>
+          </div>
         </div>
-      </div>
-    </section>
+
+        <div class="panel indicators-panel">
+          <h3>📈 Indicators</h3>
+          <div class="indicator-item">
+            <span class="indicator-label">RSI (14)</span>
+            <span class="indicator-value" id="rsiValue">50.0</span>
+          </div>
+          <div class="indicator-item">
+            <span class="indicator-label">SMA (20)</span>
+            <span class="indicator-value" id="smaValue">$0</span>
+          </div>
+          <div class="indicator-item">
+            <span class="indicator-label">EMA (12)</span>
+            <span class="indicator-value" id="emaValue">$0</span>
+          </div>
+          <div class="indicator-item">
+            <span class="indicator-label">Whale Pressure</span>
+            <span class="indicator-value whale-pressure" id="whalePressure">Neutral</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- CENTER - CHART -->
+      <main class="chart-area">
+        <div class="chart-header">
+          <div class="chart-controls">
+            <button class="time-btn active" data-interval="1">1m</button>
+            <button class="time-btn" data-interval="5">5m</button>
+            <button class="time-btn" data-interval="15">15m</button>
+            <button class="time-btn" data-interval="60">1h</button>
+          </div>
+          <div class="chart-indicators-toggle">
+            <label><input type="checkbox" id="smaToggle" checked> SMA</label>
+            <label><input type="checkbox" id="emaToggle" checked> EMA</label>
+            <label><input type="checkbox" id="bbToggle"> BB</label>
+          </div>
+        </div>
+        
+        <div class="candlestick-chart" id="candleChart"></div>
+        
+        <div class="volume-chart" id="volumeChart"></div>
+      </main>
+
+      <!-- RIGHT SIDEBAR -->
+      <aside class="sidebar-right">
+        
+        <!-- WHALE ALERTS -->
+        <div class="panel whale-alerts-panel">
+          <h3>🚨 Whale Alerts</h3>
+          <div class="alerts-container" id="alertsContainer">
+            <p class="empty-state">Waiting for whale trades...</p>
+          </div>
+        </div>
+
+        <!-- TRADE HISTORY -->
+        <div class="panel trade-history-panel">
+          <h3>📋 Trade History</h3>
+          <div class="history-filter">
+            <select id="historyFilter">
+              <option value="all">All Trades</option>
+              <option value="whale">Whales Only</option>
+              <option value="large">Large Trades</option>
+            </select>
+          </div>
+          <div class="history-table-wrapper">
+            <table class="history-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Amount</th>
+                  <th>Price</th>
+                  <th>Value</th>
+                </tr>
+              </thead>
+              <tbody id="historyBody">
+                <tr class="empty">
+                  <td colspan="4">No trades yet</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </aside>
+
+    </div>
 
   </div>
 
-  <!-- ======================== WHALE ALERT MODAL ======================== -->
+  <!-- WHALE ALERT MODAL -->
   <div class="whale-alert-modal" id="whaleAlertModal">
-    <div class="whale-alert-content">
-      <h2>🚨 WHALE ALERT!</h2>
-      <div class="alert-details">
-        <p><strong>BTC Amount:</strong> <span id="alertQuantity">0</span> BTC</p>
-        <p><strong>Price:</strong> $<span id="alertPrice">0</span></p>
-        <p><strong>USD Value:</strong> $<span id="alertValue">0</span></p>
-        <p><strong>Time:</strong> <span id="alertTime">--:--</span></p>
+    <div class="modal-content">
+      <h2>🚨 WHALE DETECTED!</h2>
+      <div class="alert-info">
+        <div class="info-row">
+          <span class="label">Amount:</span>
+          <span class="value" id="modalAmount">0</span> BTC
+        </div>
+        <div class="info-row">
+          <span class="label">Price:</span>
+          $<span class="value" id="modalPrice">0</span>
+        </div>
+        <div class="info-row">
+          <span class="label">Total Value:</span>
+          $<span class="value" id="modalValue">0</span>
+        </div>
+        <div class="info-row">
+          <span class="label">Time:</span>
+          <span class="value" id="modalTime">--:--</span>
+        </div>
       </div>
       <div class="alert-animation"></div>
     </div>
   </div>
 
-  <!-- ======================== METADATA DISPLAY ======================== -->
-  <footer class="footer">
-    <p id="btcMetadata">Loading Bitcoin data...</p>
-    <p class="footer-note">Data source: Binance WebSocket | CoinGecko API</p>
-  </footer>
-
-  <!-- JavaScript -->
   <script src="app.js"></script>
 </body>
 </html>
-

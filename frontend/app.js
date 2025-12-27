@@ -1,348 +1,395 @@
 /**
- * WHALE WATCHER - FRONTEND APPLICATION
- * 
- * Features:
- * - Real-time trade display with Socket.io
- * - Live chart updates with Chart.js
- * - Whale alert animations
- * - CoinGecko Bitcoin metadata
+ * WHALE WATCHER - Advanced Trading UI
+ * With candlestick charts and technical indicators
  */
 
-// ============================================
-// CONFIGURATION
-// ============================================
-
-const CHART_MAX_POINTS = 60; // 60 minutes
-const FEED_MAX_ITEMS = 20; // Show last 20 trades
-const WHALE_THRESHOLD = 500000; // $500K
-let previousPrice = 0;
-
-// ============================================
-// SOCKET.IO CONNECTION
-// ============================================
-
 const socket = io();
+const WHALE_THRESHOLD = 500000;
+
+// Chart instances
+let candleChart = null;
+let volumeChart = null;
+let candleSeries = null;
+let volumeSeries = null;
+
+// Data storage
+let candleData = [];
+let volumeData = [];
+let allTrades = [];
+let priceHistory = [];
+let previousPrice = 0;
+let currentInterval = 1; // in minutes
 
 // ============================================
-// CHART.JS SETUP
+// INITIALIZE CHARTS
 // ============================================
 
-let priceChart = null;
-
-function initializeChart() {
-  const ctx = document.getElementById('priceChart').getContext('2d');
+function initializeCharts() {
+  const candleContainer = document.getElementById('candleChart');
+  const volumeContainer = document.getElementById('volumeChart');
   
-  priceChart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: [],
-      datasets: [
-        {
-          label: 'BTC Price (USD)',
-          data: [],
-          borderColor: '#f7931a', // Bitcoin orange
-          backgroundColor: 'rgba(247, 147, 26, 0.1)',
-          borderWidth: 2,
-          fill: true,
-          tension: 0.4,
-          yAxisID: 'y',
-          pointRadius: 1,
-          pointHoverRadius: 4
-        },
-        {
-          label: 'Volume (BTC)',
-          data: [],
-          borderColor: '#00a86b', // Green
-          backgroundColor: 'rgba(0, 168, 107, 0.1)',
-          borderWidth: 2,
-          fill: true,
-          tension: 0.4,
-          yAxisID: 'y1',
-          pointRadius: 1,
-          pointHoverRadius: 4
-        }
-      ]
+  // Candlestick Chart
+  candleChart = LightweightCharts.createChart(candleContainer, {
+    layout: {
+      textColor: '#a0a8c0',
+      background: { color: '#1a1f3a' }
     },
-    options: {
-      responsive: true,
-      maintainAspectRatio: true,
-      interaction: {
-        mode: 'index',
-        intersect: false
-      },
-      plugins: {
-        legend: {
-          display: true,
-          labels: {
-            color: '#333',
-            font: { size: 12 }
-          }
-        },
-        title: {
-          display: false
-        }
-      },
-      scales: {
-        y: {
-          type: 'linear',
-          display: true,
-          position: 'left',
-          title: {
-            display: true,
-            text: 'Price (USD)',
-            color: '#f7931a'
-          },
-          ticks: {
-            callback: function(value) {
-              return '$' + value.toLocaleString();
-            }
-          }
-        },
-        y1: {
-          type: 'linear',
-          display: true,
-          position: 'right',
-          title: {
-            display: true,
-            text: 'Volume (BTC)',
-            color: '#00a86b'
-          },
-          grid: {
-            drawOnChartArea: false
-          }
-        }
-      }
+    width: candleContainer.clientWidth,
+    height: 500,
+    timeScale: {
+      timeVisible: true,
+      secondsVisible: false,
+      fixLeftEdge: false,
+      barSpacing: 1,     // thinner candles like real trading platforms
+      minBarSpacing: 0.5,
+      shiftVisibleRangeOnNewBar: true,
+    },
+    rightPriceScale: {
+      autoScale: true
     }
   });
+
+  candleSeries = candleChart.addCandlestickSeries({
+    upColor: '#00a86b',
+    downColor: '#ff4444',
+    borderDownColor: '#ff4444',
+    borderUpColor: '#00a86b',
+    wickDownColor: '#ff4444',
+    wickUpColor: '#00a86b'
+  });
+
+  // Add SMAs
+  const sma20Series = candleChart.addLineSeries({
+    color: '#3b82f6',
+    title: 'SMA (20)',
+    visible: true
+  });
+  sma20Series.setData([]);
+
+  const ema12Series = candleChart.addLineSeries({
+    color: '#f59e0b',
+    title: 'EMA (12)',
+    visible: true
+  });
+  ema12Series.setData([]);
+
+  // Volume Chart
+  volumeChart = LightweightCharts.createChart(volumeContainer, {
+    layout: {
+      textColor: '#a0a8c0',
+      background: { color: '#1a1f3a' }
+    },
+    width: volumeContainer.clientWidth,
+    height: 150,
+    timeScale: {
+      timeVisible: true,
+      barSpacing: 1,
+      minBarSpacing: 0.5
+    },
+    rightPriceScale: {
+      autoScale: true
+    }
+  });
+
+  volumeSeries = volumeChart.addHistogramSeries({
+    color: '#f7931a',
+    title: 'Volume'
+  });
+
+  // Initial zoom – do NOT call fitContent() (it makes single candles huge)
+  candleChart.timeScale().applyOptions({
+    barSpacing: 1,
+    minBarSpacing: 0.5,
+  });
+  volumeChart.timeScale().applyOptions({
+    barSpacing: 1,
+    minBarSpacing: 0.5,
+  });
+
+  // Store for later access
+  window.chartInstance = {
+    candleChart,
+    candleSeries,
+    volumeChart,
+    volumeSeries,
+    sma20Series,
+    ema12Series
+  };
 }
 
 // ============================================
-// FETCH BITCOIN METADATA FROM COINGECKO
+// CALCULATE TECHNICAL INDICATORS
 // ============================================
 
-async function fetchBitcoinMetadata() {
-  try {
-    const response = await fetch(
-      'https://api.coingecko.com/api/v3/coins/bitcoin?localization=false'
-    );
-    const data = await response.json();
-    
-    // Display logo
-    const logoElement = document.getElementById('btcLogo');
-    logoElement.src = data.image.large;
-    logoElement.alt = 'Bitcoin Logo';
-    
-    // Display metadata
-    const metadataElement = document.getElementById('btcMetadata');
-    metadataElement.innerHTML = `
-      <strong>${data.name}</strong> (${data.symbol.toUpperCase()}) • 
-      Market Cap: $${data.market_data.market_cap.usd?.toLocaleString() || 'N/A'} • 
-      24h Change: ${data.market_data.price_change_percentage_24h?.toFixed(2)}%
-    `;
-    
-    console.log('✅ Bitcoin metadata loaded from CoinGecko');
-  } catch (error) {
-    console.error('❌ Error fetching Bitcoin metadata:', error);
+function calculateSMA(prices, period) {
+  if (prices.length < period) return null;
+  const sum = prices.slice(-period).reduce((a, b) => a + b, 0);
+  return sum / period;
+}
+
+function calculateEMA(prices, period) {
+  if (prices.length < period) return null;
+  const k = 2 / (period + 1);
+  let ema = prices.slice(-period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < prices.length; i++) {
+    ema = prices[i] * k + ema * (1 - k);
   }
+  return ema;
+}
+
+function calculateRSI(prices, period = 14) {
+  if (prices.length < period + 1) return 50;
+  
+  let gains = 0, losses = 0;
+  for (let i = prices.length - period; i < prices.length; i++) {
+    const diff = prices[i] - prices[i - 1];
+    if (diff > 0) gains += diff;
+    else losses -= diff;
+  }
+  
+  const avgGain = gains / period;
+  const avgLoss = losses / period;
+  const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+  return 100 - (100 / (1 + rs));
+}
+
+// ============================================
+// BUILD CANDLESTICK DATA
+// ============================================
+
+function buildCandleData() {
+  if (allTrades.length === 0) return;
+
+  const intervalMs = currentInterval * 60 * 1000;
+  const buckets = new Map();
+
+  // Group trades by interval
+  allTrades.forEach(trade => {
+    const bucketTime = Math.floor(trade.timestamp / intervalMs) * intervalMs;
+    const key = bucketTime;
+
+    if (!buckets.has(key)) {
+      buckets.set(key, {
+        time: Math.floor(bucketTime / 1000),
+        open: trade.price,
+        high: trade.price,
+        low: trade.price,
+        close: trade.price,
+        volume: trade.quantity
+      });
+    } else {
+      const candle = buckets.get(key);
+      candle.high = Math.max(candle.high, trade.price);
+      candle.low = Math.min(candle.low, trade.price);
+      candle.close = trade.price;
+      candle.volume += trade.quantity;
+    }
+  });
+
+  candleData = Array.from(buckets.values()).sort((a, b) => a.time - b.time);
+  priceHistory = candleData.map(c => c.close);
+
+  // Update charts
+  candleSeries.setData(candleData);
+  volumeSeries.setData(candleData.map(c => ({
+    time: c.time,
+    value: c.volume,
+    color: c.close > c.open ? '#00a86b' : '#ff4444'
+  })));
+
+  // Update SMAs
+  const sma20Data = [];
+  const ema12Data = [];
+  
+  candleData.forEach((candle, idx) => {
+    const prices = priceHistory.slice(0, idx + 1);
+    const sma = calculateSMA(prices, 20);
+    const ema = calculateEMA(prices, 12);
+    
+    if (sma) sma20Data.push({ time: candle.time, value: sma });
+    if (ema) ema12Data.push({ time: candle.time, value: ema });
+  });
+
+  window.chartInstance.sma20Series.setData(sma20Data);
+  window.chartInstance.ema12Series.setData(ema12Data);
+
+  // Calculate RSI
+  const rsi = calculateRSI(priceHistory);
+  document.getElementById('rsiValue').textContent = rsi.toFixed(2);
+
+  // Keep candles thin: show last N bars instead of fitting whole content
+  const ts = candleChart.timeScale();
+  const last = candleData[candleData.length - 1]?.time;
+  const visibleBars = 200; // More bars = thinner candles (like real trading platforms)
+
+  if (last) {
+    ts.setVisibleRange({
+      from: last - visibleBars * currentInterval * 60,
+      to: last,
+    });
+  }
+
+  // Match volume chart range
+  const vts = volumeChart.timeScale();
+  if (last) {
+    vts.setVisibleRange({
+      from: last - visibleBars * currentInterval * 60,
+      to: last,
+    });
+  }
+}
+
+// ============================================
+// UPDATE TRADE HISTORY TABLE
+// ============================================
+
+function updateHistoryTable() {
+  const tbody = document.getElementById('historyBody');
+  const filter = document.getElementById('historyFilter').value;
+
+  let trades = [...allTrades].reverse().slice(0, 50);
+
+  if (filter === 'whale') {
+    trades = trades.filter(t => t.isWhale);
+  } else if (filter === 'large') {
+    trades = trades.filter(t => t.tradeValue > 100000);
+  }
+
+  if (trades.length === 0) {
+    tbody.innerHTML = '<tr class="empty"><td colspan="4">No trades</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = trades.map(trade => `
+    <tr class="${trade.isWhale ? 'whale-row' : ''}">
+      <td class="time">${new Date(trade.timestamp).toLocaleTimeString()}</td>
+      <td class="amount">${parseFloat(trade.quantity).toFixed(4)}</td>
+      <td class="price">$${parseFloat(trade.price).toLocaleString('en-US', { maximumFractionDigits: 2 })}</td>
+      <td class="value">$${parseFloat(trade.tradeValue).toLocaleString('en-US', { maximumFractionDigits: 0 })}</td>
+    </tr>
+  `).join('');
 }
 
 // ============================================
 // SOCKET.IO EVENT LISTENERS
 // ============================================
 
-/**
- * Connection established
- */
-socket.on('connection_status', (data) => {
-  console.log('✅ Connected to server:', data.message);
+socket.on('connection_status', () => {
   updateConnectionStatus('connected');
 });
 
-/**
- * Trade update - add to chart
- */
 socket.on('trade_update', (tradeData) => {
-  // Update price display
-  const currentPrice = parseFloat(tradeData.price);
-  updatePriceDisplay(currentPrice);
+  const trade = {
+    timestamp: new Date(tradeData.timestamp).getTime(),
+    price: parseFloat(tradeData.price),
+    quantity: parseFloat(tradeData.quantity),
+    tradeValue: parseFloat(tradeData.tradeValue),
+    isWhale: tradeData.isWhale
+  };
+
+  allTrades.push(trade);
+  updatePriceTicker(trade.price);
+  buildCandleData();
+  updateHistoryTable();
 });
 
-/**
- * Chart data update - refresh visualization
- */
-socket.on('chart_data', (chartData) => {
-  if (!priceChart) return;
-  
-  // Update chart with new data
-  priceChart.data.labels = chartData.labels;
-  priceChart.data.datasets[0].data = chartData.prices;
-  priceChart.data.datasets[1].data = chartData.volumes;
-  
-  priceChart.update('none'); // No animation for performance
-});
-
-/**
- * Whale alert - show dramatic animation
- */
 socket.on('whale_alert', (whaleData) => {
-  console.log('🚨 WHALE ALERT:', whaleData);
-  
-  // Show modal
   showWhaleAlert(whaleData);
-  
-  // Add to feed
-  addTradeToFeed(whaleData, true);
-  
-  // Play sound alert (optional)
   playAlert();
 });
 
-/**
- * Metrics update - update stats display
- */
 socket.on('metrics_update', (metrics) => {
   document.getElementById('whaleCount').textContent = metrics.whaleCount;
-  document.getElementById('hourlyVolume').textContent = 
-    metrics.hourlyVolume + ' BTC';
+  document.getElementById('maxWhale').textContent = 
+    '$' + parseFloat(metrics.maxWhaleAmount).toLocaleString('en-US', { maximumFractionDigits: 0 });
+  
+  // Calculate whale pressure
+  const pressure = metrics.whaleCount > 3 ? 'High' : metrics.whaleCount > 0 ? 'Medium' : 'Low';
+  const element = document.getElementById('whalePressure');
+  element.textContent = pressure;
+  element.className = 'indicator-value whale-pressure ' + pressure.toLowerCase();
 });
 
-/**
- * Disconnection
- */
 socket.on('disconnect', () => {
-  console.log('❌ Disconnected from server');
   updateConnectionStatus('disconnected');
 });
 
 // ============================================
-// UI UPDATE FUNCTIONS
+// UI UPDATES
 // ============================================
 
-/**
- * Update BTC price display and calculate percentage change
- */
-function updatePriceDisplay(price) {
-  const priceElement = document.getElementById('btcPrice');
-  const changeElement = document.getElementById('priceChange');
+function updateConnectionStatus(status) {
+  const element = document.getElementById('connectionStatus');
+  const dot = element.querySelector('.status-dot');
   
-  priceElement.textContent = '$' + price.toLocaleString('en-US', {
+  if (status === 'connected') {
+    dot.style.backgroundColor = '#00a86b';
+    dot.classList.add('pulse');
+    element.querySelector('span:last-child').textContent = 'Connected';
+  } else {
+    dot.style.backgroundColor = '#ff4444';
+    dot.classList.remove('pulse');
+    element.querySelector('span:last-child').textContent = 'Disconnected';
+  }
+}
+
+function updatePriceTicker(price) {
+  const element = document.getElementById('tickerPrice');
+  element.textContent = '$' + price.toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   });
-  
-  // Calculate percentage change
+
   if (previousPrice > 0) {
     const change = ((price - previousPrice) / previousPrice) * 100;
+    const changeElement = document.getElementById('tickerChange');
     changeElement.textContent = (change > 0 ? '+' : '') + change.toFixed(2) + '%';
     changeElement.style.color = change > 0 ? '#00a86b' : '#ff4444';
   }
-  
   previousPrice = price;
 }
 
-/**
- * Update connection status indicator
- */
-function updateConnectionStatus(status) {
-  const statusElement = document.getElementById('connectionStatus');
-  const statusDot = statusElement.querySelector('.status-dot');
-  const statusText = statusElement.querySelector('.status-text');
-  
-  if (status === 'connected') {
-    statusDot.style.backgroundColor = '#00a86b';
-    statusDot.classList.add('pulse');
-    statusText.textContent = 'Connected';
-    statusElement.style.color = '#00a86b';
-  } else {
-    statusDot.style.backgroundColor = '#ff4444';
-    statusDot.classList.remove('pulse');
-    statusText.textContent = 'Disconnected';
-    statusElement.style.color = '#ff4444';
-  }
-}
-
-/**
- * Show whale alert modal with animation
- */
 function showWhaleAlert(whaleData) {
   const modal = document.getElementById('whaleAlertModal');
   
-  // Update alert content
-  document.getElementById('alertQuantity').textContent = 
+  document.getElementById('modalAmount').textContent = 
     parseFloat(whaleData.quantity).toFixed(4);
-  document.getElementById('alertPrice').textContent = 
-    parseFloat(whaleData.price).toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    });
-  document.getElementById('alertValue').textContent = 
-    parseFloat(whaleData.tradeValue).toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 0
-    });
-  document.getElementById('alertTime').textContent = 
+  document.getElementById('modalPrice').textContent = 
+    parseFloat(whaleData.price).toLocaleString('en-US', { maximumFractionDigits: 2 });
+  document.getElementById('modalValue').textContent = 
+    parseFloat(whaleData.tradeValue).toLocaleString('en-US', { maximumFractionDigits: 0 });
+  document.getElementById('modalTime').textContent = 
     new Date(whaleData.timestamp).toLocaleTimeString();
-  
-  // Show modal
+
   modal.classList.add('show');
   
-  // Auto-hide after 5 seconds
+  // Add to alerts panel
+  const alertsContainer = document.getElementById('alertsContainer');
+  if (alertsContainer.querySelector('.empty-state')) {
+    alertsContainer.innerHTML = '';
+  }
+
+  const alertItem = document.createElement('div');
+  alertItem.className = 'alert-item';
+  alertItem.innerHTML = `
+    <div class="alert-time">${new Date(whaleData.timestamp).toLocaleTimeString()}</div>
+    <div class="alert-info">
+      <strong>${parseFloat(whaleData.quantity).toFixed(4)} BTC</strong>
+      <span>$${parseFloat(whaleData.tradeValue).toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>
+    </div>
+  `;
+  alertsContainer.insertBefore(alertItem, alertsContainer.firstChild);
+
+  while (alertsContainer.children.length > 10) {
+    alertsContainer.removeChild(alertsContainer.lastChild);
+  }
+
   setTimeout(() => {
     modal.classList.remove('show');
   }, 5000);
 }
 
-/**
- * Add trade to live feed
- */
-function addTradeToFeed(tradeData, isWhale = false) {
-  const feed = document.getElementById('tradeFeed');
-  
-  // Remove placeholder if exists
-  const placeholder = feed.querySelector('.placeholder');
-  if (placeholder) {
-    placeholder.remove();
-  }
-  
-  // Create feed item
-  const item = document.createElement('div');
-  item.className = `feed-item ${isWhale ? 'whale' : ''}`;
-  
-  const time = new Date(tradeData.timestamp).toLocaleTimeString();
-  const price = parseFloat(tradeData.price).toLocaleString('en-US', {
-    minimumFractionDigits: 2
-  });
-  const quantity = parseFloat(tradeData.quantity).toFixed(6);
-  const value = parseFloat(tradeData.tradeValue).toLocaleString('en-US', {
-    minimumFractionDigits: 0
-  });
-  
-  item.innerHTML = `
-    <div class="feed-item__header">
-      <span class="time">${time}</span>
-      ${isWhale ? '<span class="whale-badge">🐋 WHALE</span>' : ''}
-    </div>
-    <div class="feed-item__body">
-      <span class="quantity">${quantity} BTC</span>
-      <span class="price">@ $${price}</span>
-      <span class="value">= $${value}</span>
-    </div>
-  `;
-  
-  // Add to top of feed
-  feed.insertBefore(item, feed.firstChild);
-  
-  // Keep only last 20 trades
-  while (feed.children.length > FEED_MAX_ITEMS) {
-    feed.removeChild(feed.lastChild);
-  }
-}
-
-/**
- * Play alert sound
- */
 function playAlert() {
-  // Using Web Audio API for beep
   const audioContext = new (window.AudioContext || window.webkitAudioContext)();
   const oscillator = audioContext.createOscillator();
   const gainNode = audioContext.createGain();
@@ -350,7 +397,7 @@ function playAlert() {
   oscillator.connect(gainNode);
   gainNode.connect(audioContext.destination);
   
-  oscillator.frequency.value = 800; // 800 Hz beep
+  oscillator.frequency.value = 1000;
   oscillator.type = 'sine';
   
   gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
@@ -361,18 +408,39 @@ function playAlert() {
 }
 
 // ============================================
+// EVENT LISTENERS
+// ============================================
+
+document.querySelectorAll('.time-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    currentInterval = parseInt(this.dataset.interval);
+    buildCandleData();
+  });
+});
+
+document.getElementById('historyFilter').addEventListener('change', updateHistoryTable);
+
+// ============================================
 // INITIALIZATION
 // ============================================
 
 document.addEventListener('DOMContentLoaded', () => {
-  console.log('🐋 Whale Watcher Frontend Initialized');
-  
-  // Initialize chart
-  initializeChart();
-  
-  // Fetch Bitcoin metadata
-  fetchBitcoinMetadata();
-  
-  // Update connection status
+  initializeCharts();
   updateConnectionStatus('connecting');
+  
+  // Resize charts on window resize
+  window.addEventListener('resize', () => {
+    if (candleChart && volumeChart) {
+      const candleContainer = document.getElementById('candleChart');
+      const volumeContainer = document.getElementById('volumeChart');
+      candleChart.applyOptions({
+        width: candleContainer.clientWidth
+      });
+      volumeChart.applyOptions({
+        width: volumeContainer.clientWidth
+      });
+    }
+  });
 });
